@@ -21,17 +21,29 @@ namespace ConsoleApplication1
 
         static void Main(string[] args)
         {
-            var lc = new LiteralCollector();
+            var path = ".";
+            if (args.Length > 0 )
+            {
+                if (Directory.Exists(args[0]))
+                    path = args[0];
+                else
+                    throw new ArgumentException("First parameter must be valid path");
+            }
 
-            lc.Process();
+            using (var lc = new LiteralCollector())
+            {
 
-            lc.Dispose();
+                lc.Process();
+
+                lc.Dispose();
+            }
 
         }
 
         private void Process()
         {
             _conn = initDatabase();
+            loadLiterals();
             processDirectory(".");
         }
 
@@ -56,45 +68,62 @@ namespace ConsoleApplication1
             var tree = CSharpSyntaxTree.ParseText(context);
 
             var root = (CompilationUnitSyntax)tree.GetRoot();
-            var locations = new Dictionary<string, Tuple<int, int>>(); // literal -> (line,char)
+            var locations = new Dictionary<string, Tuple<int, int,bool>>(); // literal -> (line,char,isConstant)
 
             var nodes = root.DescendantNodes().OfType<LiteralExpressionSyntax>().Where(o => o.Kind() == SyntaxKind.StringLiteralExpression || o.Kind() == SyntaxKind.NumericLiteralExpression);
+
             foreach (var n in nodes)
             {
-                var loc = n.Token.SyntaxTree.GetLineSpan(n.Token.Span);
+                    var loc = n.Token.SyntaxTree.GetLineSpan(n.Token.Span);
 
-                var text = n.Token.ValueText.Trim();
+                    var text = n.Token.ValueText.Trim();
 
-                if (n.IsKind(SyntaxKind.NumericLiteralExpression) && text != "0" ||
-                    n.IsKind(SyntaxKind.StringLiteralExpression) && text != "")
-                {
-                    if (text.Length > 1000)
-                        text = text.Substring(0, 905)+"...";
-
-                    if (n.IsKind(SyntaxKind.StringLiteralExpression))
-                        text = "\"" + text + "\"";
-
-                    var id = _literals.Count + 1;
-                    if (_literals.ContainsKey(text))
+                    // skip simple ones
+                    if (n.IsKind(SyntaxKind.NumericLiteralExpression) && text != "0" ||
+                        n.IsKind(SyntaxKind.StringLiteralExpression) && text != "")
                     {
-                        id = _literals[text];
+                        if (text.Length > 1000)
+                            text = text.Substring(0, 905) + "...";
+
+                        if (n.IsKind(SyntaxKind.StringLiteralExpression))
+                            text = "\"" + text + "\"";
+
+                        var id = _literals.Count + 1;
+                        if (_literals.ContainsKey(text))
+                        {
+                            id = _literals[text];
+                        }
+                        else
+                            _literals[text] = id;
+
+                        locations[text] = new Tuple<int, int,bool>(loc.StartLinePosition.Line, loc.StartLinePosition.Character,isConstantOrStatic(n));
+
+                        // Console.WriteLine("String {0} at {3} {1}:{2}", n.ToString(), loc.StartLinePosition.Line, loc.StartLinePosition.Character, f);
                     }
                     else
-                        _literals[text] = id;
-
-                    locations[text] = new Tuple<int, int>(loc.StartLinePosition.Line, loc.StartLinePosition.Character);
-
-                    // Console.WriteLine("String {0} at {3} {1}:{2}", n.ToString(), loc.StartLinePosition.Line, loc.StartLinePosition.Character, f);
-                }
-                else
-                {
-                    // Console.WriteLine("Something else " + n.ToString());
-                }
+                    {
+                        // Console.WriteLine("Something else " + n.ToString());
+                    }
             }
             Console.WriteLine(f);
 
             updateDatabase(f, locations);
         }
+
+        private bool isConstantOrStatic(LiteralExpressionSyntax n)
+        {
+            if (n.Parent.Kind() == SyntaxKind.EqualsValueClause &&
+                 n.Parent.Parent.Kind() == SyntaxKind.VariableDeclarator &&
+                 n.Parent.Parent.Parent.Kind() == SyntaxKind.VariableDeclaration &&
+                 n.Parent.Parent.Parent.ChildNodes().Any(o => o.Kind() == SyntaxKind.ConstKeyword || o.Kind() == SyntaxKind.StaticKeyword))
+            {
+                return true; //  const int i = 0; or static int = 0;
+            }
+            else
+                return false;
+        }
+
+        const string LoadLiterals = @"SELECT LITERAL_ID, LITERAL FROM LITERAL";
 
         const string InsertFile = @"INSERT INTO [dbo].[SOURCE_FILE]
            ([FILE_NAME])
@@ -114,15 +143,17 @@ namespace ConsoleApplication1
         ( LITERAL_ID ,
           SOURCE_FILE_ID ,
           LINE ,
-          CHARACTER
+          CHARACTER,
+          IS_CONSTANT
         )
 VALUES  ( @literalId,
           @sourceFileId,
           @line,
-          @char
+          @char,
+          @isConstant
         )";
 
-        private void updateDatabase(string f, Dictionary<string, Tuple<int, int>> locations)
+        private void updateDatabase(string f, Dictionary<string, Tuple<int, int, bool>> locations)
         {
             var cmd = new SqlCommand(InsertFile, _conn);
             cmd.Parameters.AddWithValue("@filename", f);
@@ -152,10 +183,22 @@ VALUES  ( @literalId,
                 cmd.Parameters.AddWithValue("@sourceFileId", fileId);
                 cmd.Parameters.AddWithValue("@line", i.Value.Item1);
                 cmd.Parameters.AddWithValue("@char", i.Value.Item2);
+                cmd.Parameters.AddWithValue("@isConstant", i.Value.Item3);
                 cmd.ExecuteNonQuery();
             }
         }
 
+        private void loadLiterals()
+        {
+            _literals.Clear();
+
+            var cmd = new SqlCommand(LoadLiterals, _conn);
+            var reader = cmd.ExecuteReader();
+            while ( reader.NextResult() )
+            {
+                _literals.Add((string)reader[0], (int)reader[1]);
+            }
+        }
         private SqlConnection initDatabase()
         {
             var ret = new SqlConnection(@"Server=localhost;Initial Catalog=CODE_ANALYSIS;Integrated Security=True;MultipleActiveResultSets=True;Max Pool Size=100;Min Pool Size=0;Pooling=True");
