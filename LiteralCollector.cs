@@ -9,6 +9,11 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
 using System.IO;
 using System.Data.SqlClient;
+using System.Diagnostics;
+using System.Threading.Tasks;
+using System.Configuration;
+
+
 
 namespace ConsoleApplication1
 {
@@ -16,11 +21,13 @@ namespace ConsoleApplication1
     {
         SqlConnection _conn;
         Dictionary<string, int> _literals = new Dictionary<string, int>(10000);
-        const int x = 1;
-        static int y = 2;
+        int FileCount = 0;
 
         static void Main(string[] args)
         {
+            var sw = new Stopwatch();
+            sw.Start();
+
             var path = ".";
             if (args.Length > 0 )
             {
@@ -30,36 +37,73 @@ namespace ConsoleApplication1
                     throw new ArgumentException("First parameter must be valid path");
             }
 
+            int fileCount = 0;
             using (var lc = new LiteralCollector())
             {
 
-                lc.Process();
+                lc.Process(path);
 
                 lc.Dispose();
+                fileCount = lc.FileCount;
             }
 
+            sw.Stop();
+            Console.WriteLine("Processed {0} files in {1:0.00} minutes", fileCount, sw.Elapsed.TotalMinutes);
+            Console.ReadLine();
         }
 
-        private void Process()
+        private void Process(string path)
         {
             _conn = initDatabase();
             loadLiterals();
-            processDirectory(".");
+            processDirectory(path);
         }
 
+        string[] skips = {"debug","release","database","deploy","packages" };
+
+        /*
+        Added parallel without much effect
+            Without parallel 1.44-1.52 minutes
+            File in parallel 1.25
+            File and Direcotry in parallel 1.33
+            Set MaxDegreeOfParallelism = 20, 1.27
+            Set MaxDegreeOfParallelism = -1, 1.29
+        */
         private void processDirectory(string dir)
         {
-            foreach (var d in Directory.EnumerateDirectories(dir).Where( o => !(o.Contains(@"\Debug\") || o.Contains(@"\Release\"))))
+
+            if (dir.Length > 1)
             {
-                foreach (var f in Directory.EnumerateFiles(d, "*.cs").Where(o => !o.ToLower().EndsWith("assemblyinfo.cs")))
+                var name = Path.GetFileName(dir).ToLower();
+                if (name.StartsWith(".") || skips.Contains(name))
                 {
-                    processFile(Path.GetFullPath(f));
-                }
-                foreach (var dd in Directory.EnumerateDirectories(d))
-                {
-                    processDirectory(dd);
+                    Console.WriteLine("Skipping folder " + dir);
+                    return;
                 }
             }
+
+#if PARALLEL
+            Parallel.ForEach(Directory.EnumerateFiles(dir, "*.cs").Where(o => !o.ToLower().EndsWith("assemblyinfo.cs")),
+                new ParallelOptions() { MaxDegreeOfParallelism = -1 }, f => 
+#else
+            foreach (var f in Directory.EnumerateFiles(dir, "*.cs").Where(o => !o.ToLower().EndsWith("assemblyinfo.cs")))
+#endif
+            {
+                processFile(Path.GetFullPath(f));
+            }
+#if PARALLEL
+            );
+            Parallel.ForEach(Directory.EnumerateDirectories(dir),
+                new ParallelOptions() { MaxDegreeOfParallelism = -1 }, d =>
+#else
+            foreach (var d in Directory.EnumerateDirectories(dir))
+#endif
+            {
+                processDirectory(d);
+            }
+#if PARALLEL
+            );
+#endif
         }
 
         private void processFile(string f)
@@ -82,19 +126,30 @@ namespace ConsoleApplication1
                     if (n.IsKind(SyntaxKind.NumericLiteralExpression) && text != "0" ||
                         n.IsKind(SyntaxKind.StringLiteralExpression) && text != "")
                     {
-                        if (text.Length > 1000)
-                            text = text.Substring(0, 905) + "...";
+                        if (text.Length > 900)
+                            text = text.Substring(0, 895) + "...";
+
+                        foreach ( var c in text.ToCharArray() )
+                        {
+                            if (Char.IsControl(c) && !Char.IsWhiteSpace(c) )
+                            {
+                                text = text.Replace(c, '~');
+                            }
+                        }
 
                         if (n.IsKind(SyntaxKind.StringLiteralExpression))
                             text = "\"" + text + "\"";
 
-                        var id = _literals.Count + 1;
-                        if (_literals.ContainsKey(text))
+                        lock( _literals)
                         {
-                            id = _literals[text];
+                            var id = _literals.Count + 1;
+                            if (_literals.ContainsKey(text))
+                            {
+                                id = _literals[text];
+                            }
+                            else
+                                _literals[text] = id;
                         }
-                        else
-                            _literals[text] = id;
 
                         locations[text] = new Tuple<int, int,bool>(loc.StartLinePosition.Line, loc.StartLinePosition.Character,isConstantOrStatic(n));
 
@@ -107,6 +162,8 @@ namespace ConsoleApplication1
             }
             Console.WriteLine(f);
 
+            System.Threading.Interlocked.Increment(ref FileCount);
+                
             updateDatabase(f, locations);
         }
 
@@ -115,7 +172,7 @@ namespace ConsoleApplication1
             if (n.Parent.Kind() == SyntaxKind.EqualsValueClause &&
                  n.Parent.Parent.Kind() == SyntaxKind.VariableDeclarator &&
                  n.Parent.Parent.Parent.Kind() == SyntaxKind.VariableDeclaration &&
-                 n.Parent.Parent.Parent.ChildNodes().Any(o => o.Kind() == SyntaxKind.ConstKeyword || o.Kind() == SyntaxKind.StaticKeyword))
+                 n.Parent.Parent.Parent.Parent.ChildTokens().Any(o => o.Kind() == SyntaxKind.ConstKeyword || o.Kind() == SyntaxKind.StaticKeyword))
             {
                 return true; //  const int i = 0; or static int = 0;
             }
@@ -125,11 +182,21 @@ namespace ConsoleApplication1
 
         const string LoadLiterals = @"SELECT LITERAL_ID, LITERAL FROM LITERAL";
 
-        const string InsertFile = @"INSERT INTO [dbo].[SOURCE_FILE]
+        const string InsertFile = @"
+DECLARE @id INT = (SELECT SOURCE_FILE_ID FROM dbo.SOURCE_FILE WHERE FILE_NAME = @filename)
+IF @id IS NOT NULL 
+BEGIN
+    DELETE FROM LITERAL_LOCATION WHERE SOURCE_FILE_ID = @id
+END
+ELSE
+BEGIN
+    INSERT INTO [dbo].[SOURCE_FILE]
            ([FILE_NAME])
      VALUES
            (@filename);
-        SELECT @@IDENTITY";
+    SET @id = @@IDENTITY
+END
+SELECT @id";
 
         const string CheckLiteral = @"IF NOT EXISTS (SELECT 1 FROM dbo.LITERAL WHERE LITERAL = @literal)
 	INSERT INTO dbo.LITERAL
@@ -159,7 +226,7 @@ VALUES  ( @literalId,
             cmd.Parameters.AddWithValue("@filename", f);
 
             object o = cmd.ExecuteScalar();
-            int fileId = (int)(decimal)o;
+            int fileId = (int)o;
 
             foreach ( var i in locations)
             {
@@ -175,6 +242,8 @@ VALUES  ( @literalId,
                 {
                     if (e.Number == 2627)
                         Console.WriteLine("Duplicate key for " + i.Key);
+                    else
+                        throw;
                 }
 
                 cmd.Parameters.Clear();
@@ -194,14 +263,15 @@ VALUES  ( @literalId,
 
             var cmd = new SqlCommand(LoadLiterals, _conn);
             var reader = cmd.ExecuteReader();
-            while ( reader.NextResult() )
+            while ( reader.Read() )
             {
-                _literals.Add((string)reader[0], (int)reader[1]);
+                _literals.Add(reader.GetString(1), reader.GetInt32(0));
             }
         }
         private SqlConnection initDatabase()
         {
-            var ret = new SqlConnection(@"Server=localhost;Initial Catalog=CODE_ANALYSIS;Integrated Security=True;MultipleActiveResultSets=True;Max Pool Size=100;Min Pool Size=0;Pooling=True");
+            var connectionString = ConfigurationManager.ConnectionStrings["CodeAnalysis"];
+            var ret = new SqlConnection(connectionString.ConnectionString);
             ret.Open();
             return ret;
         }
