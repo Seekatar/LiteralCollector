@@ -18,7 +18,8 @@ namespace LiteralCollector
     /// </summary>
     class LiteralCollector : IDisposable
     {
-        string[] _skips = {  };
+        string[] _skips = {  }; // dirs
+        string[] _fileSkips = {  }; // dirs
         IPersistence _conn;
         int FileCount = 0;
 
@@ -68,6 +69,10 @@ namespace LiteralCollector
             var s = ConfigurationManager.AppSettings["skips"];
             if (s != null )
                 _skips = s.Split(",".ToCharArray());
+
+            s = ConfigurationManager.AppSettings["fileskips"];
+            if (s != null)
+                _fileSkips = s.Split(",".ToCharArray());
 
             processDirectory(path);
         }
@@ -127,6 +132,12 @@ namespace LiteralCollector
         /// <param name="f">The fully qualified file name.</param>
         private void processFile(string f)
         {
+            if (_fileSkips.Contains(Path.GetFileName(f)))
+            {
+                WriteLine($"Skipping file {f}");
+                return;
+            }
+
             var context = File.ReadAllText(f);
             var tree = CSharpSyntaxTree.ParseText(context);
 
@@ -162,7 +173,8 @@ namespace LiteralCollector
 
                         _conn.GetLiteralId(text);
 
-                        locations[text] = new Tuple<int, int,bool>(loc.StartLinePosition.Line, loc.StartLinePosition.Character,isConstantOrStatic(n));
+                        // line number is 0-based, but in editor 1 based
+                        locations[text] = new Tuple<int, int,bool>(loc.StartLinePosition.Line+1, loc.StartLinePosition.Character,isConstantOrStatic(n));
 
                     }
                     // else a 0, "" or something we don't care about
