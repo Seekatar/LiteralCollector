@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "LiteralCollector": {
+      "commandName": "Project",
+      "commandLineArgs": "C:\\code\\loyal\\FeatureToggles\\src\\FeatureTogglesApi\\"
+    }
+  }
+}

@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.33312.197
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "LiteralCollector", "LiteralCollector.csproj", "{D6DAD6E8-5B46-46F3-B25D-6EE04F79C314}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{D6DAD6E8-5B46-46F3-B25D-6EE04F79C314}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D6DAD6E8-5B46-46F3-B25D-6EE04F79C314}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D6DAD6E8-5B46-46F3-B25D-6EE04F79C314}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D6DAD6E8-5B46-46F3-B25D-6EE04F79C314}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {3B5E20A1-F01A-46B3-BA36-8C7412192390}
+	EndGlobalSection
+EndGlobal
