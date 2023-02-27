@@ -75,7 +75,6 @@ VALUES  ( @literalId,
 
         public void Initialize()
         {
-            Directory.GetCurrentDirectory();
             _conn.Open();
 
             Literals.Clear();
@@ -89,13 +88,13 @@ VALUES  ( @literalId,
             }
         }
 
-        public void Save(string filename, Dictionary<string, Tuple<int, int, bool>> locations)
+        public async Task SaveFileScan(int _, string filename, Dictionary<string, Tuple<int, int, bool>> locations)
         {
             using var cmd = _conn.CreateCommand();
             cmd.CommandText = InsertFile;
             cmd.Parameters.Add(new SqlParameter("@filename", filename));
 
-            object? o = cmd.ExecuteScalar();
+            object? o = await cmd.ExecuteScalarAsync();
             if (o == null)
                 throw new Exception("Unable to insert file");
             int fileId = (int)o;
@@ -108,7 +107,7 @@ VALUES  ( @literalId,
                     cmd.CommandText = CheckLiteral;
                     cmd.Parameters.Add(new SqlParameter("@literal", i.Key));
                     cmd.Parameters.Add(new SqlParameter("@literalId", Literals[i.Key]));
-                    cmd.ExecuteNonQuery();
+                    await cmd.ExecuteNonQueryAsync();
                 }
                 catch (DbException e) // when (e.Number == 2627)
                 {
@@ -122,7 +121,7 @@ VALUES  ( @literalId,
                 cmd.Parameters.Add(new SqlParameter("@line", i.Value.Item1));
                 cmd.Parameters.Add(new SqlParameter("@char", i.Value.Item2));
                 cmd.Parameters.Add(new SqlParameter("@isConstant", i.Value.Item3));
-                cmd.ExecuteNonQuery();
+                await cmd.ExecuteNonQueryAsync();
             }
         }
 

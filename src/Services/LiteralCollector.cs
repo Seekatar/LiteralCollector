@@ -123,7 +123,7 @@ class Collector : IDisposable
         {
             if (n.Token.SyntaxTree is null) continue;
             
-            var loc = n.Token.SyntaxTree?.GetLineSpan(n.Token.Span);
+            FileLinePositionSpan? loc = n.Token.SyntaxTree?.GetLineSpan(n.Token.Span);
 
             var text = n.Token.ValueText.Trim();
 
@@ -145,7 +145,7 @@ class Collector : IDisposable
                 if (n.IsKind(SyntaxKind.StringLiteralExpression))
                     text = "\"" + text + "\"";
 
-                _conn.GetLiteralId(text);
+                //_conn.GetLiteralId(text);
 
                 // line number is 0-based, but in editor 1 based
                 if (loc is null) continue;
@@ -158,7 +158,7 @@ class Collector : IDisposable
 
         Interlocked.Increment(ref _fileCount);
 
-        _conn.Save(fileName, locations);
+        _conn.SaveFileScan(1, fileName, locations);
     }
 
     /// <summary>

@@ -7,6 +7,7 @@ using Seekatar.Tools;
 using Serilog;
 using Serilog.Configuration;
 using System.Diagnostics;
+using LiteralCollector.Database;
 
 Environment.SetEnvironmentVariable("NETCORE_ENVIRONMENT", "Development");
 Environment.SetEnvironmentVariable("DOTNET_ENVIRONMENT", "Development");
@@ -31,6 +32,7 @@ serviceCollection.AddOptions<CollectorOptions>()
 
 serviceCollection.AddSingleton<IConfiguration>(configuration);
 serviceCollection.AddSingleton<IPersistence,Persistence>();
+serviceCollection.AddSingleton<IPersistence,EfPersistence>();
 serviceCollection.AddSingleton<Collector>();
 
 var provider = serviceCollection.BuildServiceProvider();

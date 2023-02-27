@@ -16,12 +16,12 @@ namespace LiteralCollector
         /// </summary>
         void Initialize();
 
-        /// <summary>
+                /// <summary>
         /// Saves the specified filename and data to the database.
         /// </summary>
         /// <param name="filename">The filename.</param>
         /// <param name="locations">The locations, which is literal -> line, char, isConstant.</param>
-        void Save(string filename, Dictionary<string, Tuple<int, int, bool>> locations);
+        Task SaveFileScan(int scanId, string filename, Dictionary<string, Tuple<int, int, bool>> locations);
 
         /// <summary>
         /// Gets the literals, which is literal->literalId
