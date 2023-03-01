@@ -5,9 +5,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Seekatar.Tools;
 using Serilog;
-using Serilog.Configuration;
 using System.Diagnostics;
-using LiteralCollector.Database;
 
 Environment.SetEnvironmentVariable("NETCORE_ENVIRONMENT", "Development");
 Environment.SetEnvironmentVariable("DOTNET_ENVIRONMENT", "Development");
@@ -42,19 +40,16 @@ var provider = serviceCollection.BuildServiceProvider();
 var sw = new Stopwatch();
 sw.Start();
 
-var path = ".";
-if (args.Length > 0)
+if (args.Length < 2 || !Directory.Exists(args[0]) || !Directory.Exists(args[1]))
 {
-    if (Directory.Exists(args[0]))
-        path = args[0];
-    else
-        throw new ArgumentException("First parameter must be valid path");
+    WriteLine("Supply Fully Qualified path to scan and its fully qualified base");
+    return 9;
 }
 
 int fileCount = 0;
 using var lc = provider.GetRequiredService<Collector>();
 
-lc.Process(path);
+lc.Process(args[0], args[1]);
 
 fileCount = lc.FileCount;
 
@@ -67,3 +62,5 @@ if (Debugger.IsAttached)
     Write("Press enter to exit ");
     ReadLine();
 }
+
+return 0;

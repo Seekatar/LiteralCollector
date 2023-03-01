@@ -1,48 +1,54 @@
-﻿using LiteralCollector.Database;
-using Microsoft.Data.Sqlite;
+﻿using CommunityToolkit.Diagnostics;
+using LiteralCollector.Database;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
-using System;
-using System.Collections.Generic;
-using System.Configuration;
-using System.Data.Common;
 using System.Data.SqlClient;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace LiteralCollector;
 
 internal class EfPersistence : IPersistence
 {
     private readonly IConfiguration _configuration;
+    private readonly string? _connectionString;
+    private Scan? _scan;
 
     public EfPersistence(IConfiguration configuration)
     {
         _configuration = configuration;
-        var connectionString = _configuration.GetConnectionString("CodeAnalysis");
-
+        _connectionString = _configuration.GetConnectionString("CodeAnalysis");
     }
 
     public Dictionary<string, int> Literals { get; private set; } = new Dictionary<string, int>();
 
-    public void Initialize()
+    public async Task Initialize(string basePath)
     {
-        using var db = new LiteralDbContext();
+        using var db = new LiteralDbContext(_connectionString);
 
+        var project = await db.Projects.Include(o => o.Scans).FirstOrDefaultAsync(o => o.BaseFolder == basePath);
+        project ??= new Project { BaseFolder = basePath };
+        _scan = new Scan {
+            StartTime = DateTimeOffset.Now,
+        };
+        project.Scans.Add(_scan);
+        
+        await db.SaveChangesAsync();
+        
         Literals.Clear();
 
         Literals = db.Literals.ToDictionary(k => k.Value, v => v.LiteralId);
     }
 
-    public async Task SaveFileScan(int scanId, string filename, Dictionary<string, Tuple<int, int, bool>> locations)
+    public async Task SaveFileScan(int scanId, string filename, Dictionary<string, Location> locations)
     {
+        Guard.IsNotNull(_scan);
+        
         var sourceFile = new SourceFile() {
             FileName = Path.GetFileName(filename),
             Path = Path.GetDirectoryName(filename),
-            ScanId = scanId
+            ScanId = _scan.ScanId
         };
 
-        using var db = new LiteralDbContext();
+        using var db = new LiteralDbContext(_connectionString);
         using var trans = db.Database.BeginTransaction();
 
         db.SourceFiles.Add(sourceFile);
@@ -71,8 +77,10 @@ internal class EfPersistence : IPersistence
             {
                 LiteralId = Literals[i.Key],
                 SourceFileId = sourceFile.SourceFileId,
-                LineStart = i.Value.Item1,
-                ColumnStart = i.Value.Item2
+                LineStart = i.Value.Start.Line,
+                ColumnStart = i.Value.Start.Character,
+                LineEnd = i.Value.End.Line,
+                ColumnEnd = i.Value.End.Character,
             };
             location.SourceFileId = sourceFile.SourceFileId;
             db.LiteralLocations.Add(location);

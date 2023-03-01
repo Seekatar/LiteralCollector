@@ -1,16 +1,10 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
-using Microsoft.CodeAnalysis.CSharp.Symbols;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
-using System.IO;
-using System.Diagnostics;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
 using CommunityToolkit.Diagnostics;
 using Microsoft.Extensions.Logging;
+using System;
 
 namespace LiteralCollector;
 
@@ -42,9 +36,10 @@ class Collector : IDisposable
     /// Processes all the cs files in the specified path.
     /// </summary>
     /// <param name="path">The path.</param>
-    public void Process(string path)
+    /// <param name="basePath">The path.</param>
+    public void Process(string path, string basePath)
     {
-        _conn.Initialize();
+        _conn.Initialize(basePath);
 
         ProcessDirectory(path);
     }
@@ -81,7 +76,7 @@ class Collector : IDisposable
         foreach (var f in Directory.EnumerateFiles(dir, "*.cs").Where(o => !o.ToLower().EndsWith("assemblyinfo.cs")))
 #endif
         {
-            processFile(Path.GetFullPath(f));
+            ProcessFile(Path.GetFullPath(f));
         }
 #if PARALLEL
         );
@@ -102,7 +97,7 @@ class Collector : IDisposable
     /// Processes one file file.
     /// </summary>
     /// <param name="fileName">The fully qualified file name.</param>
-    private void processFile(string fileName)
+    private void ProcessFile(string fileName)
     {
         if (_options.FileSkips?.Contains(Path.GetFileName(fileName)) ?? false)
         {
@@ -114,25 +109,36 @@ class Collector : IDisposable
         var tree = CSharpSyntaxTree.ParseText(context);
 
         var root = (CompilationUnitSyntax)tree.GetRoot();
-        var locations = new Dictionary<string, Tuple<int, int, bool>>(); // literal -> (line,char,isConstant)
+        var locations = new Dictionary<string, Location>();
 
+        int x = -1;
+        
         // get all the string and numeric literals
-        var nodes = root.DescendantNodes().OfType<LiteralExpressionSyntax>().Where(o => o.Kind() == SyntaxKind.StringLiteralExpression || o.Kind() == SyntaxKind.NumericLiteralExpression);
+        var nodes = root.DescendantNodes().OfType<LiteralExpressionSyntax>().Where(o => o.Kind() == SyntaxKind.StringLiteralExpression 
+                                                                                        || o.Kind() == SyntaxKind.NumericLiteralExpression
+                                                                                        || o.Kind() == SyntaxKind.UnaryMinusExpression
+                                                                                        );
 
+        bool haveMinus = false;
         foreach (var n in nodes)
         {
+            if (n.IsKind(SyntaxKind.UnaryMinusExpression))
+            {
+                haveMinus = true;
+                continue;
+            }
             if (n.Token.SyntaxTree is null) continue;
             
             FileLinePositionSpan? loc = n.Token.SyntaxTree?.GetLineSpan(n.Token.Span);
 
-            var text = n.Token.ValueText.Trim();
+            var text = (haveMinus ? "-" : "")+n.Token.ValueText.Trim();
 
             // skip simple ones
             if (n.IsKind(SyntaxKind.NumericLiteralExpression) && text != "0" ||
                 n.IsKind(SyntaxKind.StringLiteralExpression) && text != "")
             {
                 if (text.Length > 900)
-                    text = text.Substring(0, 895) + "...";
+                    text = string.Concat(text.AsSpan(0, 895), "...");
 
                 foreach (var c in text.ToCharArray())
                 {
@@ -145,13 +151,12 @@ class Collector : IDisposable
                 if (n.IsKind(SyntaxKind.StringLiteralExpression))
                     text = "\"" + text + "\"";
 
-                //_conn.GetLiteralId(text);
-
-                // line number is 0-based, but in editor 1 based
                 if (loc is null) continue;
-                locations[text] = new Tuple<int, int, bool>(loc.Value.StartLinePosition.Line + 1, loc.Value.StartLinePosition.Character, IsConstantOrStatic(n));
+                // line, col number is 0-based, but in editor 1 based
+                locations[text] = new Location(loc.Value.StartLinePosition, loc.Value.EndLinePosition, IsConstantOrStatic(n));
 
             }
+            haveMinus = false;
             // else a 0, "" or something we don't care about
         }
         _logger.LogDebug("{file}", fileName);

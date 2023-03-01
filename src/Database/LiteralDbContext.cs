@@ -1,14 +1,5 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using Microsoft.EntityFrameworkCore;
-using System;
-using System.Collections.Generic;
-using System.ComponentModel.DataAnnotations.Schema;
+﻿using Microsoft.EntityFrameworkCore;
 using System.ComponentModel.DataAnnotations;
-using Microsoft.Extensions.Hosting;
 
 namespace LiteralCollector.Database;
 
@@ -22,7 +13,7 @@ internal class LiteralDbContext : DbContext
 
     public string DbPath { get; }
 
-    public LiteralDbContext()
+    public LiteralDbContext(string? _connectionString)
     {
         var folder = Environment.SpecialFolder.LocalApplicationData;
         var path = Environment.GetFolderPath(folder);

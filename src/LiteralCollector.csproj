@@ -38,4 +38,12 @@
 		<PackageReference Include="System.Data.SqlClient" Version="4.8.5" />
 	</ItemGroup>
 
+	<ItemGroup>
+	  <EditorConfigFiles Remove="C:\code\LiteralCollector\src\.editorconfig" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <None Include="C:\code\LiteralCollector\src\.editorconfig" />
+	</ItemGroup>
+
 </Project>
