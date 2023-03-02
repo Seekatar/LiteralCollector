@@ -29,7 +29,7 @@ serviceCollection.AddOptions<CollectorOptions>()
     .Bind(configuration.GetSection("CollectorOptions"));
 
 serviceCollection.AddSingleton<IConfiguration>(configuration);
-serviceCollection.AddSingleton<IPersistence,Persistence>();
+//serviceCollection.AddSingleton<IPersistence,Persistence>();
 serviceCollection.AddSingleton<IPersistence,EfPersistence>();
 serviceCollection.AddSingleton<Collector>();
 
@@ -56,11 +56,5 @@ fileCount = lc.FileCount;
 
 sw.Stop();
 WriteLine($"Processed {fileCount} files in {sw.Elapsed.TotalMinutes:0.00} minutes");
-
-if (Debugger.IsAttached)
-{
-    Write("Press enter to exit ");
-    ReadLine();
-}
 
 return 0;

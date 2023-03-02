@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using CommunityToolkit.Diagnostics;
 using Microsoft.Extensions.Logging;
 using System;
+using LiteralCollector.Database;
 
 namespace LiteralCollector;
 
@@ -37,18 +38,18 @@ class Collector : IDisposable
     /// </summary>
     /// <param name="path">The path.</param>
     /// <param name="basePath">The path.</param>
-    public void Process(string path, string basePath)
+    public async Task Process(string path, string basePath)
     {
-        _conn.Initialize(basePath);
+        var project = await _conn.GetProject(basePath);
 
-        ProcessDirectory(path);
+        ProcessDirectory(path, project);
     }
 
     /// <summary>
     /// Recursive method for processing a directory
     /// </summary>
     /// <param name="dir">The dir.</param>
-    private void ProcessDirectory(string dir)
+    private void ProcessDirectory(string dir, Project project)
     {
         /*
         Added parallel without much effect
@@ -76,7 +77,7 @@ class Collector : IDisposable
         foreach (var f in Directory.EnumerateFiles(dir, "*.cs").Where(o => !o.ToLower().EndsWith("assemblyinfo.cs")))
 #endif
         {
-            ProcessFile(Path.GetFullPath(f));
+            ProcessFile(Path.GetFullPath(f), project);
         }
 #if PARALLEL
         );
@@ -86,7 +87,11 @@ class Collector : IDisposable
         foreach (var d in Directory.EnumerateDirectories(dir))
 #endif
         {
-            ProcessDirectory(d);
+            var dirName = Path.GetFileName(d);
+            if (dirName.Equals("bin", StringComparison.OrdinalIgnoreCase) || dirName.Equals("obj", StringComparison.OrdinalIgnoreCase))
+                continue;
+            
+            ProcessDirectory(d, project);
         }
 #if PARALLEL
         );
@@ -97,7 +102,7 @@ class Collector : IDisposable
     /// Processes one file file.
     /// </summary>
     /// <param name="fileName">The fully qualified file name.</param>
-    private void ProcessFile(string fileName)
+    private void ProcessFile(string fileName, Project project)
     {
         if (_options.FileSkips?.Contains(Path.GetFileName(fileName)) ?? false)
         {
@@ -111,23 +116,23 @@ class Collector : IDisposable
         var root = (CompilationUnitSyntax)tree.GetRoot();
         var locations = new Dictionary<string, Location>();
 
-        int x = -1;
-        
         // get all the string and numeric literals
-        var nodes = root.DescendantNodes().OfType<LiteralExpressionSyntax>().Where(o => o.Kind() == SyntaxKind.StringLiteralExpression 
-                                                                                        || o.Kind() == SyntaxKind.NumericLiteralExpression
-                                                                                        || o.Kind() == SyntaxKind.UnaryMinusExpression
+        var nodes = root.DescendantNodes().Where(o => o.IsKind(SyntaxKind.StringLiteralExpression) 
+                                                                                        || o.IsKind(SyntaxKind.NumericLiteralExpression)
+                                                                                        || o.IsKind(SyntaxKind.UnaryMinusExpression)
                                                                                         );
 
         bool haveMinus = false;
-        foreach (var n in nodes)
+        foreach (var nn in nodes)
         {
-            if (n.IsKind(SyntaxKind.UnaryMinusExpression))
+            if (nn.IsKind(SyntaxKind.UnaryMinusExpression))
             {
                 haveMinus = true;
                 continue;
             }
-            if (n.Token.SyntaxTree is null) continue;
+            var n = nn as LiteralExpressionSyntax;
+            
+            if (n!.Token.SyntaxTree is null) continue;
             
             FileLinePositionSpan? loc = n.Token.SyntaxTree?.GetLineSpan(n.Token.Span);
 
@@ -137,6 +142,8 @@ class Collector : IDisposable
             if (n.IsKind(SyntaxKind.NumericLiteralExpression) && text != "0" ||
                 n.IsKind(SyntaxKind.StringLiteralExpression) && text != "")
             {
+                if (text == "1")
+                    Console.WriteLine("1");
                 if (text.Length > 900)
                     text = string.Concat(text.AsSpan(0, 895), "...");
 
@@ -152,7 +159,6 @@ class Collector : IDisposable
                     text = "\"" + text + "\"";
 
                 if (loc is null) continue;
-                // line, col number is 0-based, but in editor 1 based
                 locations[text] = new Location(loc.Value.StartLinePosition, loc.Value.EndLinePosition, IsConstantOrStatic(n));
 
             }
@@ -163,7 +169,7 @@ class Collector : IDisposable
 
         Interlocked.Increment(ref _fileCount);
 
-        _conn.SaveFileScan(1, fileName, locations);
+        _conn.SaveFileScan(fileName.Replace(project.BaseFolder,"").Trim(Path.DirectorySeparatorChar), locations);
     }
 
     /// <summary>

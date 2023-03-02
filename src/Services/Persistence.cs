@@ -65,7 +65,7 @@ VALUES  ( @literalId,
         _conn?.Dispose();
     }
 
-    public Task Initialize(string _)
+    public Task GetProject(string _)
     {
         _conn.Open();
 
@@ -81,7 +81,7 @@ VALUES  ( @literalId,
         return Task.CompletedTask;
     }
 
-    public async Task SaveFileScan(int _, string filename, Dictionary<string, Location> locations)
+    public async Task SaveFileScan(string filename, Dictionary<string, Location> locations)
     {
         using var cmd = _conn.CreateCommand();
         cmd.CommandText = InsertFile;
