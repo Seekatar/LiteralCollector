@@ -2,9 +2,9 @@ select *
 from projects
 left join scans on scans.ProjectId = projects.ProjectId;
 
-select * 
+select *
 from Literals l
 join LiteralLocations ll on l.LiteralId = ll.LiteralId
 join SourceFiles sf on sf.SourceFileId = ll.SourceFileId
-where value like '%1';
+where value like '-1';
 

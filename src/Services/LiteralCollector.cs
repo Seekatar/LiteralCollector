@@ -118,32 +118,34 @@ class Collector : IDisposable
 
         // get all the string and numeric literals
         var nodes = root.DescendantNodes().Where(o => o.IsKind(SyntaxKind.StringLiteralExpression) 
-                                                                                        || o.IsKind(SyntaxKind.NumericLiteralExpression)
-                                                                                        || o.IsKind(SyntaxKind.UnaryMinusExpression)
-                                                                                        );
+                                                    || o.IsKind(SyntaxKind.NumericLiteralExpression)
+                                                    || o.IsKind(SyntaxKind.CharacterLiteralExpression)
+                                                    || o.IsKind(SyntaxKind.Utf8StringLiteralExpression)
+                                                    || o.IsKind(SyntaxKind.UnaryMinusExpression)
+                                                   );
 
         bool haveMinus = false;
-        foreach (var nn in nodes)
+        foreach (var node in nodes)
         {
-            if (nn.IsKind(SyntaxKind.UnaryMinusExpression))
+            if (node.IsKind(SyntaxKind.UnaryMinusExpression))
             {
                 haveMinus = true;
                 continue;
             }
-            var n = nn as LiteralExpressionSyntax;
+            var literal = node as LiteralExpressionSyntax;
             
-            if (n!.Token.SyntaxTree is null) continue;
+            if (literal!.Token.SyntaxTree is null) continue;
             
-            FileLinePositionSpan? loc = n.Token.SyntaxTree?.GetLineSpan(n.Token.Span);
+            FileLinePositionSpan? loc = literal.Token.SyntaxTree?.GetLineSpan(literal.Token.Span);
 
-            var text = (haveMinus ? "-" : "")+n.Token.ValueText.Trim();
+            var text = (haveMinus ? "-" : "")+literal.Token.ValueText.Trim();
 
             // skip simple ones
-            if (n.IsKind(SyntaxKind.NumericLiteralExpression) && text != "0" ||
-                n.IsKind(SyntaxKind.StringLiteralExpression) && text != "")
+            if (literal.IsKind(SyntaxKind.NumericLiteralExpression) && text != "0" ||
+                literal.IsKind(SyntaxKind.StringLiteralExpression) && text != "" ||
+                literal.IsKind(SyntaxKind.Utf8StringLiteralExpression) && text != "" ||
+                literal.IsKind(SyntaxKind.CharacterLiteralExpression) && text != "")
             {
-                if (text == "1")
-                    Console.WriteLine("1");
                 if (text.Length > 900)
                     text = string.Concat(text.AsSpan(0, 895), "...");
 
@@ -155,15 +157,14 @@ class Collector : IDisposable
                     }
                 }
 
-                if (n.IsKind(SyntaxKind.StringLiteralExpression))
+                if (literal.IsKind(SyntaxKind.StringLiteralExpression))
                     text = "\"" + text + "\"";
 
                 if (loc is null) continue;
-                locations[text] = new Location(loc.Value.StartLinePosition, loc.Value.EndLinePosition, IsConstantOrStatic(n));
+                locations[text] = new Location(loc.Value.StartLinePosition, loc.Value.EndLinePosition, IsConstantOrStatic(literal));
 
             }
             haveMinus = false;
-            // else a 0, "" or something we don't care about
         }
         _logger.LogDebug("{file}", fileName);
 
